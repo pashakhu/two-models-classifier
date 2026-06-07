@@ -1,4 +1,6 @@
 import os
+import urllib.request
+from pathlib import Path
 
 print("APP IMPORTED", flush=True)
 
@@ -7,23 +9,54 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 
-
 print("IMPORTS LOADED", flush=True)
+
+
+# ============================================================
+# Диагностика файлов внутри контейнера
+# ============================================================
 
 print("CURRENT DIR:", os.getcwd(), flush=True)
 print("FILES HERE:", os.listdir("."), flush=True)
 
-for root, dirs, files in os.walk("."):
-    for file in files:
-        if file.endswith(".keras"):
-            print("FOUND KERAS MODEL:", os.path.join(root, file), flush=True)
+
 # ============================================================
-# Пути к моделям
-# Модели сейчас лежат в корне проекта Hugging Face Space
+# Пути и URL моделей
 # ============================================================
 
-KHUSANOV_MODEL_PATH = "khusanov_mobilenetv2_cats_dogs.keras"
-RYZHOV_MODEL_PATH = "ryzhov_flowers.keras"
+BASE_DIR = Path(__file__).resolve().parent
+
+MODELS_DIR = Path("/tmp/models")
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+KHUSANOV_MODEL_PATH = MODELS_DIR / "khusanov_mobilenetv2_cats_dogs.keras"
+RYZHOV_MODEL_PATH = MODELS_DIR / "ryzhov_flowers.keras"
+
+KHUSANOV_MODEL_URL = (
+    "https://raw.githubusercontent.com/pashakhu/two-models-classifier/main/"
+    "khusanov_mobilenetv2_cats_dogs.keras"
+)
+
+RYZHOV_MODEL_URL = (
+    "https://raw.githubusercontent.com/pashakhu/two-models-classifier/main/"
+    "ryzhov_flowers.keras"
+)
+
+
+def download_file_if_needed(url, path):
+    path = Path(path)
+
+    if path.exists() and path.stat().st_size > 1000:
+        print(f"MODEL ALREADY EXISTS: {path}", flush=True)
+        return
+
+    print(f"DOWNLOADING MODEL FROM: {url}", flush=True)
+    print(f"SAVING TO: {path}", flush=True)
+
+    urllib.request.urlretrieve(url, path)
+
+    print(f"DOWNLOADED: {path}", flush=True)
+    print(f"SIZE: {path.stat().st_size / 1024 / 1024:.2f} MB", flush=True)
 
 
 # ============================================================
@@ -32,23 +65,24 @@ RYZHOV_MODEL_PATH = "ryzhov_flowers.keras"
 
 MODEL_CONFIGS = {
     "Хусанов — кошки/собаки": {
-        "path": KHUSANOV_MODEL_PATH,
+        "path": str(KHUSANOV_MODEL_PATH),
+        "url": KHUSANOV_MODEL_URL,
         "classes": ["Cat", "Dog"],
         "fallback_size": (128, 128),
-        "task": "binary"
+        "task": "binary",
     },
     "Рыжов — цветы": {
-        "path": RYZHOV_MODEL_PATH,
+        "path": str(RYZHOV_MODEL_PATH),
+        "url": RYZHOV_MODEL_URL,
         "classes": ["daisy", "dandelion", "roses", "sunflowers", "tulips"],
         "fallback_size": (64, 64),
-        "task": "multiclass"
-    }
+        "task": "multiclass",
+    },
 }
 
 
 # ============================================================
 # Ленивая загрузка моделей
-# Модель загружается только после выбора и нажатия кнопки
 # ============================================================
 
 loaded_models = {}
@@ -56,26 +90,28 @@ loaded_models = {}
 
 def get_model(model_name):
     if model_name not in loaded_models:
-        model_path = MODEL_CONFIGS[model_name]["path"]
+        config = MODEL_CONFIGS[model_name]
+
+        model_path = config["path"]
+        model_url = config["url"]
 
         print(f"LOADING MODEL: {model_name}", flush=True)
         print(f"MODEL PATH: {model_path}", flush=True)
+        print(f"MODEL URL: {model_url}", flush=True)
+
+        download_file_if_needed(model_url, model_path)
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Файл модели не найден: {model_path}")
 
+        print("START KERAS LOAD_MODEL", flush=True)
         loaded_models[model_name] = tf.keras.models.load_model(model_path)
-
         print(f"MODEL LOADED: {model_name}", flush=True)
 
     return loaded_models[model_name]
 
 
 def get_model_input_size(model, fallback_size):
-    """
-    Пытаемся автоматически взять размер входа модели.
-    Если не получилось — используем fallback.
-    """
     try:
         input_shape = model.input_shape
 
@@ -133,27 +169,14 @@ def predict(model_name, image):
 
     result = {}
 
-    # --------------------------------------------------------
-    # Модель Хусанова: бинарная классификация Cat / Dog
-    # Один выход sigmoid
-    # --------------------------------------------------------
     if task == "binary":
         prob = float(predictions[0][0])
 
-        cat_prob = 1.0 - prob
-        dog_prob = prob
+        result[class_names[0]] = 1.0 - prob
+        result[class_names[1]] = prob
 
-        result[class_names[0]] = cat_prob
-        result[class_names[1]] = dog_prob
-
-    # --------------------------------------------------------
-    # Модель Рыжова: многоклассовая классификация цветов
-    # 5 выходов softmax
-    # --------------------------------------------------------
     else:
         probs = predictions[0]
-
-        # На случай если модель вдруг вернет не 5 классов
         count = min(len(class_names), len(probs))
 
         for i in range(count):
@@ -176,16 +199,16 @@ interface = gr.Interface(
         gr.Dropdown(
             choices=list(MODEL_CONFIGS.keys()),
             value="Хусанов — кошки/собаки",
-            label="Выберите модель"
+            label="Выберите модель",
         ),
         gr.Image(
             type="pil",
-            label="Загрузите изображение"
-        )
+            label="Загрузите изображение",
+        ),
     ],
     outputs=gr.Label(
         label="Результат распознавания",
-        num_top_classes=5
+        num_top_classes=5,
     ),
     title="Классификатор изображений: кошки/собаки и цветы",
     description=(
@@ -193,7 +216,7 @@ interface = gr.Interface(
         "Модель Хусанова распознаёт кошек и собак. "
         "Модель Рыжова распознаёт виды цветов."
     ),
-    examples=[]
+    examples=[],
 )
 
 print("GRADIO INTERFACE READY", flush=True)
@@ -213,5 +236,5 @@ if __name__ == "__main__":
         server_port=port,
         show_error=True,
         share=False,
-        debug=True
+        debug=True,
     )
