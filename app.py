@@ -105,7 +105,12 @@ def get_model(model_name):
             raise FileNotFoundError(f"Файл модели не найден: {model_path}")
 
         print("START KERAS LOAD_MODEL", flush=True)
-        loaded_models[model_name] = tf.keras.models.load_model(model_path)
+
+        loaded_models[model_name] = tf.keras.models.load_model(
+            model_path,
+            safe_mode=False
+        )
+
         print(f"MODEL LOADED: {model_name}", flush=True)
 
     return loaded_models[model_name]
