@@ -8,6 +8,9 @@ import gradio as gr
 import tensorflow as tf
 import numpy as np
 from PIL import Image
+from tensorflow.keras.applications.mobilenet_v2 import (
+    preprocess_input as mobilenet_preprocess_input,
+)
 
 print("IMPORTS LOADED", flush=True)
 
@@ -48,6 +51,7 @@ def download_file_if_needed(url, path):
 
     if path.exists() and path.stat().st_size > 1000:
         print(f"MODEL ALREADY EXISTS: {path}", flush=True)
+        print(f"SIZE: {path.stat().st_size / 1024 / 1024:.2f} MB", flush=True)
         return
 
     print(f"DOWNLOADING MODEL FROM: {url}", flush=True)
@@ -108,7 +112,11 @@ def get_model(model_name):
 
         loaded_models[model_name] = tf.keras.models.load_model(
             model_path,
-            safe_mode=False
+            custom_objects={
+                "preprocess_input": mobilenet_preprocess_input,
+            },
+            safe_mode=False,
+            compile=False,
         )
 
         print(f"MODEL LOADED: {model_name}", flush=True)
