@@ -10,7 +10,13 @@ from PIL import Image
 
 print("IMPORTS LOADED", flush=True)
 
+print("CURRENT DIR:", os.getcwd(), flush=True)
+print("FILES HERE:", os.listdir("."), flush=True)
 
+for root, dirs, files in os.walk("."):
+    for file in files:
+        if file.endswith(".keras"):
+            print("FOUND KERAS MODEL:", os.path.join(root, file), flush=True)
 # ============================================================
 # Пути к моделям
 # Модели сейчас лежат в корне проекта Hugging Face Space
